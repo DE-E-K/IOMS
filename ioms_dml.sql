@@ -71,56 +71,76 @@ GROUP BY c.customer_id, c.full_name, c.email;
 SELECT * from customersalessummary
 ORDER BY total_spent DESC LIMIT 15;
 
--- DELIMITER $$
+DELIMITER $$
 
--- CREATE PROCEDURE ProcessNewOrder(
---     IN p_customer_id INT,
---     IN p_product_id INT,
---     IN p_quantity INT
--- )
--- BEGIN
---     DECLARE v_stock INT;
---     DECLARE v_price DECIMAL(10,2);
---     DECLARE v_order_id INT;
-    
---     -- Start transaction
---     START TRANSACTION;
-    
---     -- Check stock and price from Inventory
---     SELECT stock_quantity, unit_price
---     INTO v_stock, v_price
---     FROM inventory
---     WHERE product_id = p_product_id
---     FOR UPDATE;  -- lock row
-    
---     -- Validate stock
---     IF v_stock < p_quantity THEN
---         ROLLBACK;
---         SELECT 'Error: Not enough stock available' AS message;
---         LEAVE BEGIN;
---     END IF;
+CREATE PROCEDURE ProcessNewOrder(
+    IN p_customer_id INT,
+    IN p_product_id INT,
+    IN p_quantity INT
+)
+proc: BEGIN
 
---     -- Create Order
---     INSERT INTO orders (customer_id, order_date, status)
---     VALUES (p_customer_id, NOW(), 'Pending');
+    DECLARE v_stock INT;
+    DECLARE v_price DECIMAL(10,2);
+    DECLARE v_order_id INT;
 
---     SET v_order_id = LAST_INSERT_ID();
+    -- Start transaction
+    START TRANSACTION;
 
---     -- Insert Order Item
---     INSERT INTO order_items (order_id, product_id, quantity, unit_price)
---     VALUES (v_order_id, p_product_id, p_quantity, v_price);
+    -- Get stock and product price
+    SELECT i.quantity_on_hand, p.price
+    INTO v_stock, v_price
+    FROM inventory i
+    JOIN product p ON p.product_id = i.product_id
+    WHERE i.product_id = p_product_id
+    FOR UPDATE;
 
---     -- Reduce stock
---     UPDATE inventory
---     SET stock_quantity = stock_quantity - p_quantity
---     WHERE product_id = p_product_id;
+    -- Validate product exists
+    IF v_stock IS NULL THEN
+        ROLLBACK;
+        SELECT 'Error: Product does not exist in inventory.' AS message;
+        LEAVE proc;
+    END IF;
 
---     -- Commit
---     COMMIT;
+    -- Validate stock
+    IF v_stock < p_quantity THEN
+        ROLLBACK;
+        SELECT 'Error: Not enough stock available.' AS message;
+        LEAVE proc;
+    END IF;
 
---     SELECT 'Success: Order processed successfully' AS message,
---            v_order_id AS new_order_id;
+    -- Create Order (total calculated later)
+    INSERT INTO orders (customer_id, order_date, total_amount, order_status)
+    VALUES (p_customer_id, NOW(), 0, 'Pending');
 
--- END$$
+    SET v_order_id = LAST_INSERT_ID();
 
--- DELIMITER ;
+    -- Insert Order Item
+    INSERT INTO order_item (order_id, product_id, quantity, unit_price_at_purchase)
+    VALUES (v_order_id, p_product_id, p_quantity, v_price);
+
+    -- Update total amount
+    UPDATE orders
+    SET total_amount = p_quantity * v_price
+    WHERE order_id = v_order_id;
+
+    -- Reduce stock
+    UPDATE inventory
+    SET quantity_on_hand = quantity_on_hand - p_quantity
+    WHERE product_id = p_product_id;
+
+    -- Commit transaction
+    COMMIT;
+
+    SELECT 'Success: Order processed successfully' AS message,
+           v_order_id AS new_order_id;
+
+END proc$$
+
+DELIMITER ;
+
+-- test to see it my procedure is working
+INSERT INTO order_item (order_id, product_id, quantity, unit_price_at_purchase)
+VALUES
+(1, 5, 2, 1000),
+(1, 502, 1, 5000);
