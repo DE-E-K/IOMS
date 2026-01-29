@@ -31,7 +31,7 @@ CREATE TABLE orders (
   order_date DATETIME DEFAULT CURRENT_TIMESTAMP,
   total_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
   order_status ENUM('Pending','Processing','Shipped','Delivered','Cancelled') DEFAULT 'Pending',
-  FOREIGN KEY (customer_id) REFERENCES customer(customer_id) ON DELETE CASCADE
+  FOREIGN KEY (customer_id) REFERENCES customer(customer_id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 -- ORDER ITEMS TABLE
@@ -41,8 +41,8 @@ CREATE TABLE order_item (
   product_id INT NOT NULL,
   quantity INT NOT NULL CHECK (quantity > 0),
   unit_price_at_purchase DECIMAL(10,2) NOT NULL CHECK (unit_price_at_purchase > 0),
-  FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
-  FOREIGN KEY (product_id) REFERENCES product(product_id) ON DELETE CASCADE,
+  FOREIGN KEY (order_id) REFERENCES orders(order_id) ON UPDATE CASCADE ON DELETE RESTRICT,
+  FOREIGN KEY (product_id) REFERENCES product(product_id) ON UPDATE CASCADE ON DELETE RESTRICT,
   UNIQUE(order_id, product_id)
 );
 
@@ -54,7 +54,18 @@ CREATE TABLE inventory (
   reorder_point INT NOT NULL CHECK (reorder_point >= 0),
   reorder_quantity INT NOT NULL CHECK (reorder_quantity > 0),
   last_updated DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (product_id) REFERENCES product(product_id) ON DELETE CASCADE
+  FOREIGN KEY (product_id) REFERENCES product(product_id) ON UPDATE CASCADE ON DELETE RESTRICT
+);
+
+-- INVENTORY LOG TABLE
+CREATE TABLE inventory_log (
+  log_id INT PRIMARY KEY AUTO_INCREMENT,
+  product_id INT NOT NULL,
+  quantity_change INT NOT NULL,
+  transaction_type ENUM('ORDER', 'RESTOCK', 'ADJUSTMENT') NOT NULL,
+  reference_id INT,
+  log_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (product_id) REFERENCES product(product_id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 -- LOW STOCK ALERTS
@@ -63,7 +74,7 @@ CREATE TABLE low_stock_alerts (
   product_id INT NOT NULL,
   alert_date DATETIME DEFAULT CURRENT_TIMESTAMP,
   message VARCHAR(255) NOT NULL,
-  FOREIGN KEY (product_id) REFERENCES product(product_id) ON DELETE CASCADE
+  FOREIGN KEY (product_id) REFERENCES product(product_id) ON UPDATE CASCADE ON DELETE RESTRICT
 );
 
 
@@ -73,34 +84,7 @@ CREATE INDEX idx_order_item_product_id ON order_item(product_id);
 CREATE INDEX idx_inventory_product_id ON inventory(product_id);
 
 -- TRIGGERS
--- Check stock BEFORE inserting an order item
-CREATE TRIGGER trg_check_stock_before_order
-BEFORE INSERT ON order_item
-FOR EACH ROW
-BEGIN
-  DECLARE stock INT;
-  SELECT quantity_on_hand INTO stock FROM inventory WHERE product_id = NEW.product_id;
-
-  IF stock IS NULL THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Product does not exist in inventory.';
-  END IF;
-
-  IF NEW.quantity > stock THEN
-    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Not enough stock to fulfill this order item.';
-  END IF;
-END;
-
--- Reduce stock AFTER inserting an order item
-CREATE TRIGGER trg_reduce_stock_after_order
-AFTER INSERT ON order_item
-FOR EACH ROW
-BEGIN
-  UPDATE inventory
-  SET quantity_on_hand = quantity_on_hand - NEW.quantity
-  WHERE product_id = NEW.product_id;
-END;
-
--- Auto-create low stock alert
+-- Auto-create low stock alert (Keeping this as it monitors state)
 CREATE TRIGGER trg_low_stock_alert
 AFTER UPDATE ON inventory
 FOR EACH ROW
@@ -110,18 +94,8 @@ BEGIN
     VALUES(NEW.product_id, 'Stock below reorder point.');
   END IF;
 END;
-
--- Auto-update Order Total
-CREATE TRIGGER trg_update_order_total
-AFTER INSERT ON order_item
-FOR EACH ROW
-BEGIN
-  UPDATE orders
-  SET total_amount = (SELECT SUM(quantity * unit_price_at_purchase)
-                      FROM order_item
-                      WHERE order_id = NEW.order_id)
-  WHERE order_id = NEW.order_id;
-END;
+-- Removed logic triggers (trg_check_stock_before_order, trg_reduce_stock_after_order, trg_update_order_total) 
+-- as logic is moved to PlaceOrder stored procedure.
 
 -- SAMPLE DATA INSERTS
 
