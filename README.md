@@ -31,77 +31,12 @@ DEM03/
 └── README.md            # Project Documentation
 ```
 
-## Database Schema (ERD)
+## [Database Schema (ERD)](https://dbdiagram.io/d/697c8161bd82f5fce21ffbfb)
 
 The following diagram illustrates the relationships between the core entities.
 
-```dbdiagram
-Table customer {
-  customer_id int [pk]
-  full_name varchar
-  email varchar
-  phone varchar
-  shipping_address varchar
-  created_at datetime
-}
+<img width="900" height="700" alt="DB Schema" src="https://github.com/user-attachments/assets/ad9ebe5f-c7c1-48ff-8b74-7b5ae0dc18b8" />
 
-Table product {
-  product_id int [pk]
-  product_name varchar
-  category enum
-  price decimal
-  is_active boolean
-  created_at datetime
-}
-
-Table orders {
-  order_id int [pk]
-  customer_id int
-  order_date datetime
-  total_amount decimal
-  order_status enum
-}
-
-Table order_item {
-  order_item_id int [pk]
-  order_id int
-  product_id int
-  quantity int
-  unit_price_at_purchase decimal
-}
-
-Table inventory {
-  inventory_id int [pk]
-  product_id int
-  quantity_on_hand int
-  reorder_point int
-  reorder_quantity int
-  last_updated datetime
-}
-
-Table inventory_log {
-  log_id int [pk]
-  product_id int
-  quantity_change int
-  transaction_type enum
-  reference_id int
-  log_date datetime
-}
-
-Table low_stock_alerts {
-  alert_id int [pk]
-  product_id int
-  alert_date datetime
-  message varchar
-}
-
-Ref: orders.customer_id > customer.customer_id
-Ref: order_item.order_id > orders.order_id
-Ref: order_item.product_id > product.product_id
-Ref: inventory.product_id - product.product_id
-Ref: inventory_log.product_id > product.product_id
-Ref: low_stock_alerts.product_id > product.product_id
-```
 
 ## Setup & Usage
 
