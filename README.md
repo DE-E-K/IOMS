@@ -1,47 +1,163 @@
 # IOMS - Inventory and Order Management System
 
-This project provides a robust database schema for an Inventory and Order Management System (IOMS) tailored for e-commerce applications. The core of this project is the Entity-Relationship Diagram (ERD) and the corresponding SQL implementation to manage products, inventory, and customer orders efficiently.
+## Overview
+
+The **Inventory and Order Management System (IOMS)** is a robust, production-ready database solution designed for e-commerce applications. The core of this project is the Entity-Relationship Diagram (ERD) and the corresponding SQL implementation that provides a scalable schema for managing customers, products, dynamic inventory, and transactional order processing.
+
+Key enhancements in this version include:
+
+- **strict foreign key constraints** for data integrity
+- **atomic order processing** to prevent race conditions
+- **comprehensive inventory log** for full auditability
+- **advanced analytics** with pre-built KPIs and views
 
 ## Key Features
 
-- **Order Management**: Tracks customer orders from placement to fulfillment.
-- **Inventory Control**: Manages product stock levels.
-- **Stock Sufficiency Checks**: Ensures that there is enough stock to fulfill a new order before it is confirmed.
-- **Low Stock Alerts**: Provides a mechanism to alert managers when inventory for a product falls below a certain threshold.
-- **Scalable Schema**: A well-designed database schema that can grow with the business.
+- **Transactional Order Processing**: ACID-compliant order placement utilizing `START TRANSACTION` and row-level locking (`FOR UPDATE`) to handle high-concurrency environments safely.
+- **Dynamic Inventory Control**: Real-time stock deduction and validation.
+- **Audit Logging**: A dedicated `inventory_log` tracks every stock movement (Orders, Restocks, Adjustments) for accountability.
+- **Data Integrity**: Enforced via Foreign Keys with `ON DELETE RESTRICT` to prevent accidental loss of historical data.
+- **Low Stock Alerts**: Automated triggers to monitor reorder points.
+- **Business Intelligence**: Includes the `CustomerSalesSummary` view and analytical queries for revenue trends and product ranking.
 
-## Database Schema
+## Project Structure
 
-The database is designed to handle the complexities of an e-commerce business. The main entities include:
+```ascii
+DEM03/
+├── ioms_ddl.sql         # Database Schema: Tables, Views, FK Constraints
+├── ioms_dml.sql         # Database Logic: Stored Procedures (PlaceOrder), KPI Queries
+├── verify_changes.sql   # Verification Script: Test cases for new logic
+├── IOMS_ERD.pdf         # Visual Entity-Relationship Diagram (PDF)
+└── README.md            # Project Documentation
+```
 
-- **`Products`**: Stores information about each product, such as name, description, and price.
-- **`Customers`**: Contains customer details.
-- **`Orders`**: Holds information about each order, including the customer who placed it, the order date, and its status.
-- **`Order_Item`**: A junction table that links products to orders, specifying the quantity of each product in an order.
-- **`Inventory`**: Tracks the quantity on hand for each product and sets a reorder level for low-stock alerts.
+## Database Schema (ERD)
 
-### Entity-Relationship Diagram (ERD)
+The following diagram illustrates the relationships between the core entities.
 
-The schema is built around the relationships between these core tables:
+```dbdiagram
+Table customer {
+  customer_id int [pk]
+  full_name varchar
+  email varchar
+  phone varchar
+  shipping_address varchar
+  created_at datetime
+}
 
-- A `Customer` can have multiple `Orders`.
-- An `Order` consists of multiple `Order_Items`.
-- Each `Order_Item` corresponds to a single `Product`.
-- The `Inventory` table has a one-to-one relationship with the `Product` table.
+Table product {
+  product_id int [pk]
+  product_name varchar
+  category enum
+  price decimal
+  is_active boolean
+  created_at datetime
+}
 
-## Technologies Used
+Table orders {
+  order_id int [pk]
+  customer_id int
+  order_date datetime
+  total_amount decimal
+  order_status enum
+}
 
-- **MySQL**: The primary language used for defining and manipulating the database.
+Table order_item {
+  order_item_id int [pk]
+  order_id int
+  product_id int
+  quantity int
+  unit_price_at_purchase decimal
+}
 
-## Getting Started
+Table inventory {
+  inventory_id int [pk]
+  product_id int
+  quantity_on_hand int
+  reorder_point int
+  reorder_quantity int
+  last_updated datetime
+}
 
-To get this system up and running, you will need a SQL database server (like MySQL).
+Table inventory_log {
+  log_id int [pk]
+  product_id int
+  quantity_change int
+  transaction_type enum
+  reference_id int
+  log_date datetime
+}
 
-1.  **Create the Database**: by excute the Schema Script `ioms_ddl.sql` file (not included in this README) to create the tables and relationships. which is also contain the populated initial sample data for database to use.
+Table low_stock_alerts {
+  alert_id int [pk]
+  product_id int
+  alert_date datetime
+  message varchar
+}
 
-## Usage Examples
+Ref: orders.customer_id > customer.customer_id
+Ref: order_item.order_id > orders.order_id
+Ref: order_item.product_id > product.product_id
+Ref: inventory.product_id - product.product_id
+Ref: inventory_log.product_id > product.product_id
+Ref: low_stock_alerts.product_id > product.product_id
+```
 
-Here are some example SQL queries to demonstrate how to interact with the system in the `ioms_dml.sql` file.
+## Setup & Usage
 
-### ERD
-Understand the ERD by having a look on the `IOMS_ERD.pdf` file
+### Prerequisites
+
+- **MySQL Server** (8.0+)
+- MySQL Workbench or any SQL client
+
+### Installation Steps
+
+1.  **Initialize the Database**:
+    Execute the [DDL script](ioms_ddl.sql) to create the schema and populate initial seed data.
+
+    ```bash
+    mysql -u root -p < ioms_ddl.sql
+    ```
+
+2.  **Load Business Logic**:
+    Execute the [DML script](ioms_dml.sql) to install the stored procedures, views, and analytical queries.
+
+    ```bash
+    mysql -u root -p < ioms_dml.sql
+    ```
+
+3.  **Verify Installation**:
+    Run the [verification Quereis](verify_changes.sql) to ensure all constraints and logic are working as expected.
+    ```bash
+    mysql -u root -p < verify_changes.sql
+    ```
+
+### Core Procedure: `PlaceOrder`
+
+The system uses a JSON-based stored procedure to handle multi-item orders atomically.
+
+**Signature:**
+
+```sql
+CALL PlaceOrder(
+    IN p_customer_id INT,
+    IN p_order_items JSON,
+    OUT p_order_id INT
+);
+```
+
+**Example Usage:**
+
+```sql
+-- Create an order for Customer ID 1 with two items
+CALL PlaceOrder(
+    1,
+    '[{"product_id": 1, "quantity": 2}, {"product_id": 5, "quantity": 1}]',
+    @new_order_id
+);
+SELECT @new_order_id;
+
+## Technologies
+
+- **Database**: MySQL 8.0
+- **Diagramming**: dbdiagram.io, PDF
