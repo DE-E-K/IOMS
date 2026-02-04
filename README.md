@@ -40,7 +40,7 @@ DEM03/
 
 ### Database Schema (ERD)
 ![IOMS Enhanced ERD](ioms_update_erd.png)
-[More information](docs\schema_documentation.md)
+[More information](docs/schema_documentation.md) | [Business Logic & Procedures](docs/logic_documentation.md)
 
 ## Setup Instructions
 
