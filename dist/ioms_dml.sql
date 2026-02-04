@@ -1,3 +1,60 @@
+-- SAMPLE DATA POPULATION (Enhanced)
+-- Populates core tables with realistic data for testing
+
+-- 1. CATEGORIES
+INSERT INTO product_category (category_name, description) VALUES 
+('Electronics', 'Gadgets, computers, and accessories'),
+('Apparel', 'Clothing, shoes, and wearables'),
+('Books', 'Technical and non-fiction books'),
+('Home & Garden', 'Furniture, decor, and tools');
+
+-- 2. PRODUCTS
+INSERT INTO product (product_name, category_id, sku, price, cost_price) VALUES
+-- Electronics
+('Smartphone X', 1, 'ELEC-PH-001', 500.00, 350.00),
+('Laptop Pro 15', 1, 'ELEC-LP-001', 1200.00, 900.00),
+('Wireless Headphones', 1, 'ELEC-AU-001', 150.00, 80.00),
+('Monitor 27"', 1, 'ELEC-MN-001', 300.00, 200.00),
+-- Apparel
+('T-Shirt Classic', 2, 'APP-TS-001', 20.00, 5.00),
+('Jeans Regular', 2, 'APP-JN-001', 40.00, 15.00),
+('Running Shoes', 2, 'APP-SH-001', 85.00, 40.00),
+-- Books
+('Python Programming', 3, 'BK-CS-001', 45.00, 20.00),
+('Data Science Guide', 3, 'BK-CS-002', 55.00, 25.00);
+
+-- 3. INVENTORY (Initial Stock)
+INSERT INTO inventory (product_id, quantity_on_hand, reorder_point, reorder_quantity) VALUES
+(1, 50, 10, 20),
+(2, 20, 5, 10),
+(3, 100, 20, 50),
+(4, 30, 8, 15),
+(5, 200, 30, 100),
+(6, 80, 20, 40),
+(7, 60, 15, 30),
+(8, 40, 10, 20),
+(9, 35, 10, 20);
+
+-- 4. SUPPLIERS
+INSERT INTO suppliers (supplier_name, contact_email) VALUES 
+('Tech Global Inc', 'sales@techglobal.com'),
+('Fashion Wholesalers', 'orders@fashionwhole.com'),
+('Book Publishers Ltd', 'distrib@books.com');
+
+-- 5. PROMOTIONS
+INSERT INTO promotions (promotion_code, promotion_name, promotion_type, discount_value, minimum_order_amount, valid_from, valid_to) VALUES
+('WELCOME10', 'Welcome Discount', 'Percentage', 10.00, 0.00, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
+('FREESHIP', 'Free Shipping over $100', 'Free Shipping', 0.00, 100.00, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR)),
+('SAVE50', 'Save $50 on Big Orders', 'Fixed Amount', 50.00, 500.00, NOW(), DATE_ADD(NOW(), INTERVAL 6 MONTH));
+
+-- 6. CUSTOMERS
+INSERT INTO customer (full_name, email, phone, shipping_address) VALUES
+('John Doe', 'john@example.com', '123-456-7890', 'Kigali, Rwanda'),
+('Jane Smith', 'jane@example.com', '098-765-4321', 'Musanze, Rwanda'),
+('Alice Brown', 'alice@example.com', '555-555-5555', 'Huye, Rwanda');
+
+-- Initialize Loyalty for customers
+INSERT INTO customer_loyalty (customer_id) SELECT customer_id FROM customer;
 -- Active: 1767084789057@@127.0.0.1@3306@ioms
 -- Inventory and Order Management System (IOMS)
 -- DML IMPLEMENTATION
@@ -38,7 +95,7 @@ proc: BEGIN
     DECLARE v_available_qty INT DEFAULT 0;
     DECLARE v_inactive_product_id INT DEFAULT NULL;
     
-    -- Temporary table for order items
+    -- Temporary table for ordered items
     DECLARE CONTINUE HANDLER FOR SQLEXCEPTION
     BEGIN
         GET DIAGNOSTICS CONDITION 1 
@@ -889,7 +946,7 @@ END$$
 
 DELIMITER ;
 
--- ============================================
+
 -- MONITORING AND MAINTENANCE PROCEDURES
 -- ============================================
 
@@ -1079,3 +1136,381 @@ BEGIN
     
 END$$
 
+-- 3. DATA INTEGRITY CHECK
+CREATE PROCEDURE CheckDataIntegrity()
+BEGIN
+    -- Orphaned order items
+    SELECT 
+        'ORPHANED_ORDER_ITEMS' as issue_type,
+        COUNT(*) as count
+    FROM order_item oi
+    LEFT JOIN orders o ON oi.order_id = o.order_id
+    WHERE o.order_id IS NULL;
+    
+    -- Orphaned inventory records
+    SELECT 
+        'ORPHANED_INVENTORY' as issue_type,
+        COUNT(*) as count
+    FROM inventory i
+    LEFT JOIN product p ON i.product_id = p.product_id
+    WHERE p.product_id IS NULL;
+    
+    -- Negative inventory (should never happen)
+    SELECT 
+        'NEGATIVE_INVENTORY' as issue_type,
+        COUNT(*) as count
+    FROM inventory
+    WHERE quantity_on_hand < 0 OR quantity_reserved < 0;
+    
+    -- Inactive products with inventory
+    SELECT 
+        'INACTIVE_PRODUCTS_WITH_STOCK' as issue_type,
+        COUNT(*) as count
+    FROM product p
+    JOIN inventory i ON p.product_id = i.product_id
+    WHERE p.is_active = FALSE
+    AND (i.quantity_on_hand > 0 OR i.quantity_reserved > 0);
+    
+    -- Customers with invalid emails
+    SELECT 
+        'INVALID_CUSTOMER_EMAILS' as issue_type,
+        COUNT(*) as count
+    FROM customer
+    WHERE email NOT REGEXP '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$';
+    
+    -- Orders with mismatched totals
+    SELECT 
+        'ORDERS_TOTAL_MISMATCH' as issue_type,
+        COUNT(*) as count
+    FROM orders o
+    JOIN (
+        SELECT order_id, 
+               SUM(quantity * unit_price) as calculated_total
+        FROM order_item
+        GROUP BY order_id
+    ) oi ON o.order_id = oi.order_id
+    WHERE ABS(o.total_amount - oi.calculated_total) > 0.01;
+    
+END$$
+
+DELIMITER ;
+
+-- EXAMPLE USAGE AND TESTING
+-- ============================================
+
+-- Test PlaceOrder
+/*
+SET @customer_id = 1;
+SET @order_items = '[{"product_id": 1, "quantity": 2}, {"product_id": 2, "quantity": 1}]';
+SET @payment_method = 'Credit Card';
+SET @shipping_method = 'EXPRESS';
+SET @shipping_address = '{"address": "123 Main St", "city": "Kigali", "country": "Rwanda"}';
+SET @promotion_code = 'WELCOME10';
+
+CALL PlaceOrder(
+    @customer_id,
+    @order_items,
+    @payment_method,
+    @shipping_method,
+    @shipping_address,
+    @promotion_code,
+    @order_id,
+    @order_number,
+    @status,
+    @message
+);
+
+SELECT @order_id, @order_number, @status, @message;
+*/
+
+-- Test RestockInventory
+/*
+SET @product_id = 1;
+SET @quantity = 100;
+SET @batch_number = 'BATCH123';
+SET @supplier_id = 1;
+SET @unit_cost = 10.00;
+SET @expiration_date = '2025-12-31';
+CALL RestockInventory(
+    @product_id,   
+    @quantity,
+    @batch_number,
+    @supplier_id,
+    @unit_cost,
+    @expiration_date,
+    @status,
+    @message
+);
+
+SELECT @status, @message;
+*/
+
+-- Test
+/*
+Triggers for Inventory and Customer Management System
+Version: 2.0 - Production Ready
+Automation of inventory alerts, customer lifetime value updates, 
+data access logging,product rating updates.
+*/
+-- ============================================ 
+
+USE IOMS;
+DELIMITER $$
+
+-- Trigger 1: Auto-create low stock alert
+CREATE TRIGGER trg_low_stock_alert
+AFTER UPDATE ON inventory
+FOR EACH ROW
+BEGIN
+    DECLARE v_product_name VARCHAR(255);
+    DECLARE v_current_level ENUM('INFO', 'WARNING', 'CRITICAL');
+    
+    -- Only trigger if quantity changed
+    IF OLD.quantity_on_hand != NEW.quantity_on_hand THEN
+        -- Get product name
+        SELECT product_name INTO v_product_name 
+        FROM product WHERE product_id = NEW.product_id;
+        
+        -- Determine alert level
+        SET v_current_level = CASE
+            WHEN NEW.quantity_on_hand <= NEW.reorder_point * 0.2 THEN 'CRITICAL'
+            WHEN NEW.quantity_on_hand <= NEW.reorder_point * 0.45 THEN 'WARNING'
+            WHEN NEW.quantity_on_hand <= NEW.reorder_point THEN 'INFO'
+            ELSE NULL
+        END;
+        
+        -- Create alert if needed
+        IF v_current_level IS NOT NULL THEN
+            INSERT INTO low_stock_alerts (
+                product_id,
+                alert_level,
+                current_quantity,
+                reorder_point,
+                message
+            ) VALUES (
+                NEW.product_id,
+                v_current_level,
+                NEW.quantity_on_hand,
+                NEW.reorder_point,
+                CONCAT(
+                    v_product_name, 
+                    ' stock is at ', 
+                    NEW.quantity_on_hand,
+                    ' units (reorder point: ',
+                    NEW.reorder_point,
+                    '). Level: ',
+                    v_current_level
+                )
+            );
+        END IF;
+    END IF;
+END$$
+
+-- Trigger 2: Update customer lifetime value
+CREATE TRIGGER trg_update_customer_lifetime_value
+AFTER INSERT ON orders
+FOR EACH ROW
+BEGIN
+    DECLARE v_total_spent DECIMAL(10,2);
+    
+    -- Calculate total spent by customer
+    SELECT COALESCE(SUM(total_amount), 0) INTO v_total_spent
+    FROM orders 
+    WHERE customer_id = NEW.customer_id 
+    AND order_status NOT IN ('Cancelled', 'Returned');
+    
+    -- Update customer record
+    UPDATE customer 
+    SET 
+        total_lifetime_value = v_total_spent,
+        last_purchase_date = NEW.order_date
+    WHERE customer_id = NEW.customer_id;
+    
+    -- Update loyalty program
+    UPDATE customer_loyalty 
+    SET total_spent = v_total_spent
+    WHERE customer_id = NEW.customer_id;
+END$$
+
+-- Trigger 3: Log data access for sensitive tables
+CREATE TRIGGER trg_audit_customer_changes
+AFTER UPDATE ON customer
+FOR EACH ROW
+BEGIN
+    INSERT INTO data_access_audit (
+        user_id,
+        action,
+        table_name,
+        record_id,
+        old_values,
+        new_values,
+        ip_address,
+        user_agent
+    ) VALUES (
+        USER(),
+        'UPDATE',
+        'customer',
+        OLD.customer_id,
+        JSON_OBJECT(
+            'full_name', OLD.full_name,
+            'email', OLD.email,
+            'phone', OLD.phone,
+            'shipping_address', OLD.shipping_address
+        ),
+        JSON_OBJECT(
+            'full_name', NEW.full_name,
+            'email', NEW.email,
+            'phone', NEW.phone,
+            'shipping_address', NEW.shipping_address
+        ),
+        COALESCE(@remote_ip, ''),
+        COALESCE(@user_agent, '')
+    );
+END$$
+
+-- Trigger 4: Update product rating
+CREATE TRIGGER trg_update_product_rating
+AFTER INSERT ON order_item
+FOR EACH ROW
+BEGIN
+    DECLARE v_avg_rating DECIMAL(3,2);
+    DECLARE v_review_count INT;
+    
+    -- In a real system, this would calculate from reviews table
+    -- For now, we'll simulate with random data
+    SET v_avg_rating = 3.5 + RAND() * 1.5;
+    SET v_review_count = (SELECT review_count FROM product WHERE product_id = NEW.product_id) + 1;
+    
+    UPDATE product 
+    SET 
+        rating = v_avg_rating,
+        review_count = v_review_count,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE product_id = NEW.product_id;
+END$$
+
+-- Trigger 5: Prevent negative inventory
+CREATE TRIGGER trg_prevent_negative_inventory
+BEFORE UPDATE ON inventory
+FOR EACH ROW
+BEGIN
+    IF NEW.quantity_on_hand < 0 THEN
+        -- Log the violation
+        INSERT INTO business_rule_violations (
+            rule_name,
+            violation_description,
+            entity_type,
+            entity_id,
+            severity
+        ) VALUES (
+            'NegativeInventoryPrevention',
+            CONCAT('Attempt to set negative inventory for product ', NEW.product_id),
+            'Inventory',
+            NEW.inventory_id,
+            'CRITICAL'
+        );
+        
+        -- Prevent the update
+        SIGNAL SQLSTATE '45000'
+        SET MESSAGE_TEXT = 'Cannot set inventory to negative value';
+    END IF;
+END$$
+
+DELIMITER ;
+-- ============================================
+-- KPI & ANALYTICAL QUERIES
+-- ============================================
+
+-- 1. VIEW: Customer Sales Summary
+-- Pre-calculates total spending and order count for easier analysis
+DROP VIEW IF EXISTS CustomerSalesSummary;
+CREATE VIEW CustomerSalesSummary AS
+SELECT 
+    c.customer_id,
+    c.full_name,
+    c.email,
+    COALESCE(SUM(o.total_amount), 0) AS total_spent,
+    COUNT(DISTINCT o.order_id) AS total_orders,
+    AVG(o.total_amount) AS avg_order_value,
+    MAX(o.order_date) AS last_order_date
+FROM customer c
+LEFT JOIN orders o ON c.customer_id = o.customer_id AND o.order_status NOT IN ('Cancelled', 'Returned')
+GROUP BY c.customer_id, c.full_name, c.email;
+
+-- 2. KPI: Total Revenue
+-- Calculate revenue from completed orders
+SELECT 
+    'Total Revenue' AS KPI,
+    SUM(total_amount) AS Value
+FROM orders
+WHERE order_status IN ('Shipped', 'Delivered');
+
+-- 3. KPI: Top 10 Customers
+-- Find top customers by spending
+SELECT 
+    customer_id, 
+    full_name, 
+    total_spent 
+FROM CustomerSalesSummary
+ORDER BY total_spent DESC 
+LIMIT 10;
+
+-- 4. KPI: Best-Selling Products
+-- Top 5 products by quantity sold
+SELECT 
+    p.product_id, 
+    p.product_name, 
+    SUM(oi.quantity) AS total_sold
+FROM order_item oi
+JOIN product p ON oi.product_id = p.product_id
+JOIN orders o ON oi.order_id = o.order_id
+WHERE o.order_status NOT IN ('Cancelled', 'Returned')
+GROUP BY p.product_id, p.product_name
+ORDER BY total_sold DESC 
+LIMIT 5;
+
+-- 5. KPI: Monthly Sales Trend
+-- Revenue grouped by month
+SELECT 
+    DATE_FORMAT(order_date, '%Y-%m') AS sales_month,
+    COUNT(order_id) AS total_orders,
+    SUM(total_amount) AS revenue
+FROM orders
+WHERE order_status NOT IN ('Cancelled', 'Returned')
+GROUP BY DATE_FORMAT(order_date, '%Y-%m')
+ORDER BY sales_month;
+
+-- 6. ANALYTICS: Sales Rank by Category (Window Function)
+-- Rank products within their category based on revenue
+SELECT 
+    pc.category_name,
+    p.product_name,
+    SUM(oi.quantity * oi.unit_price) AS product_revenue,
+    RANK() OVER (
+        PARTITION BY pc.category_name 
+        ORDER BY SUM(oi.quantity * oi.unit_price) DESC
+    ) AS rank_in_category
+FROM order_item oi
+JOIN product p ON oi.product_id = p.product_id
+JOIN product_category pc ON p.category_id = pc.category_id
+JOIN orders o ON oi.order_id = o.order_id
+WHERE o.order_status NOT IN ('Cancelled', 'Returned')
+GROUP BY pc.category_name, p.product_name;
+
+-- 7. ANALYTICS: Customer Order Frequency (Window Function)
+-- Compare current order date with previous order date
+SELECT 
+    c.full_name,
+    o.order_id,
+    o.order_date,
+    LAG(o.order_date) OVER (
+        PARTITION BY c.customer_id 
+        ORDER BY o.order_date
+    ) AS previous_order_date,
+    DATEDIFF(o.order_date, LAG(o.order_date) OVER (
+        PARTITION BY c.customer_id 
+        ORDER BY o.order_date
+    )) AS days_since_last_order
+FROM orders o
+JOIN customer c ON o.customer_id = c.customer_id
+ORDER BY c.customer_id, o.order_date;
